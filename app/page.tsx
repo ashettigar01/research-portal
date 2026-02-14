@@ -27,13 +27,22 @@ export default function Home() {
         body: formData,
       });
 
-      const data = await res.json();
+      // ✅ SAFE RESPONSE HANDLING (Fixes Vercel JSON error)
+      const text = await res.text();
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(text || "Server error");
+      }
 
       if (!res.ok) {
         if (data.error === "SCANNED_PDF") {
           setError("SCANNED_FILE");
           return;
         }
+
         throw new Error(data.error || "Processing failed");
       }
 
@@ -135,7 +144,7 @@ export default function Home() {
             <button
               onClick={handleUpload}
               disabled={loading}
-              className="w-full mt-8 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold text-lg shadow-lg hover:shadow-xl transition"
+              className="w-full mt-8 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold text-lg shadow-lg"
             >
               {loading ? "Analyzing..." : "Run Earnings Call Analysis"}
             </button>
@@ -255,7 +264,7 @@ function SmartList({ title, data }: any) {
       <h3 className="font-bold text-black mb-3 text-lg">{title}</h3>
       <ul className="list-disc pl-6 space-y-2 text-black leading-relaxed">
         {data.map((item: any, index: number) => (
-          <li key={index}>{item}</li>
+          <li key={index}>{String(item)}</li>
         ))}
       </ul>
     </div>
