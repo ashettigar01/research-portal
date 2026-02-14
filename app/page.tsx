@@ -14,6 +14,12 @@ export default function Home() {
       return;
     }
 
+    // ⚠️ Prevent very large files (Vercel limit protection)
+    if (file.size > 4 * 1024 * 1024) {
+      setError("File too large. Please upload a PDF under 4MB.");
+      return;
+    }
+
     setLoading(true);
     setError("");
     setResult(null);
@@ -27,19 +33,25 @@ export default function Home() {
         body: formData,
       });
 
-      // ✅ SAFE RESPONSE HANDLING (Fixes Vercel JSON error)
       const text = await res.text();
 
-      let data;
+      let data: any;
+
       try {
         data = JSON.parse(text);
       } catch {
-        throw new Error(text || "Server error");
+        // If Vercel returns plain text error (like FUNCTION_PAYLOAD_TOO_LARGE)
+        throw new Error(text || "Unexpected server error");
       }
 
       if (!res.ok) {
         if (data.error === "SCANNED_PDF") {
           setError("SCANNED_FILE");
+          return;
+        }
+
+        if (text.includes("FUNCTION_PAYLOAD_TOO_LARGE")) {
+          setError("File too large for server processing.");
           return;
         }
 
@@ -57,6 +69,8 @@ export default function Home() {
   /* ---------------- EXPORT FUNCTIONS ---------------- */
 
   const downloadJSON = () => {
+    if (!result) return;
+
     const blob = new Blob([JSON.stringify(result, null, 2)], {
       type: "application/json",
     });
@@ -77,9 +91,9 @@ export default function Home() {
       rows.push(`"${section}","${value.replace(/"/g, '""')}"`);
     };
 
-    for (const key in data) {
+    Object.keys(data).forEach((key) => {
       const value = data[key];
-      if (!value) continue;
+      if (!value) return;
 
       if (typeof value === "string") {
         addRow(key, value);
@@ -88,16 +102,18 @@ export default function Home() {
           addRow(`${key} ${index + 1}`, String(item));
         });
       } else if (typeof value === "object") {
-        for (const subKey in value) {
+        Object.keys(value).forEach((subKey) => {
           addRow(`${key} - ${subKey}`, String(value[subKey]));
-        }
+        });
       }
-    }
+    });
 
     return rows.join("\n");
   };
 
   const downloadCSV = () => {
+    if (!result) return;
+
     const csv = convertToCSV(result);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
 
@@ -121,7 +137,6 @@ export default function Home() {
           Structured AI-powered earnings call analysis for internal research use.
         </p>
 
-        {/* ---------------- UPLOAD SECTION ---------------- */}
         {!result && (
           <>
             <div className="mb-4 text-black font-semibold">
@@ -132,7 +147,7 @@ export default function Home() {
               type="file"
               accept=".pdf"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="w-full border border-black p-4 rounded-xl text-black bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition"
+              className="w-full border border-black p-4 rounded-xl text-black bg-white"
             />
 
             {file && (
@@ -151,24 +166,14 @@ export default function Home() {
 
             {error && (
               <div className="mt-6 bg-red-100 border border-red-400 text-red-700 p-4 rounded-lg text-center font-medium">
-                {error === "SCANNED_FILE" ? (
-                  <>
-                    <p className="text-sm font-semibold mb-2">
-                      This appears to be a scanned (image-based) PDF.
-                    </p>
-                    <p className="text-xs text-gray-500 mt-2">
-                      Only text-based PDFs are supported.
-                    </p>
-                  </>
-                ) : (
-                  error
-                )}
+                {error === "SCANNED_FILE"
+                  ? "This appears to be a scanned (image-based) PDF. Only text-based PDFs are supported."
+                  : error}
               </div>
             )}
           </>
         )}
 
-        {/* ---------------- RESULT SECTION ---------------- */}
         {result && (
           <>
             <div className="mt-6 space-y-8 max-h-[500px] overflow-y-auto pr-2">
@@ -194,23 +199,8 @@ export default function Home() {
               <SmartList title="Key Concerns" data={result.key_concerns} />
               <SmartList title="Risk Factors" data={result.risk_factors} />
 
-              <div>
-                <h3 className="font-bold text-black mb-3 text-lg">Forward Guidance</h3>
-                <div className="space-y-2 text-black">
-                  <p><strong>Revenue:</strong> {result.forward_guidance?.revenue_outlook || "Not mentioned"}</p>
-                  <p><strong>Margin:</strong> {result.forward_guidance?.margin_outlook || "Not mentioned"}</p>
-                  <p><strong>Capex:</strong> {result.forward_guidance?.capex_outlook || "Not mentioned"}</p>
-                </div>
-              </div>
-
-              <Section title="Capacity Utilization Trend" value={result.capacity_utilization_trend} />
-              <SmartList title="Growth Initiatives" data={result.growth_initiatives} />
-              <SmartList title="Strategic Actions" data={result.strategic_actions} />
-              <SmartList title="Notable Quotes" data={result.notable_quotes} />
-
             </div>
 
-            {/* EXPORT BUTTONS */}
             <div className="mt-8 space-y-4">
               <button
                 onClick={downloadJSON}
