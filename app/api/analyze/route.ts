@@ -5,6 +5,8 @@ import { analyzeTranscript } from "../../lib/llm";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
@@ -16,29 +18,62 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+    /* ---------- Convert File to Buffer ---------- */
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    /* ---------- Extract PDF Text ---------- */
     const data = await pdf(buffer);
     const extractedText = data.text?.trim();
 
-    // Detect scanned PDFs
-    if (!extractedText || extractedText.length < 100) {
+    /* ---------- Detect Scanned / Image PDFs ---------- */
+    if (!extractedText || extractedText.length < 150) {
       return NextResponse.json(
         {
           error: "SCANNED_PDF",
           message:
-            "This PDF appears to be image-based or scanned. OCR processing would be required in production."
+            "This PDF appears to be image-based or scanned. OCR would be required in production. Only text-based PDFs are supported."
         },
         { status: 400 }
       );
     }
 
-  const analysis = await analyzeTranscript(extractedText);
+    /* ---------- Run AI Analysis ---------- */
+    const analysis = await analyzeTranscript(extractedText);
 
-return NextResponse.json(analysis);
+    /* ---------- AI Validation Layer ---------- */
+    const missingCount = Object.values(analysis).filter(
+      (val: any) => val === "Not mentioned"
+    ).length;
 
+    if (missingCount > 8) {
+      analysis.ai_validation_warning =
+        "Large portion of transcript lacked structured financial signals. Manual review recommended.";
+    }
+
+    const endTime = Date.now();
+
+    /* ---------- Return Structured Response + Metadata ---------- */
+    return NextResponse.json({
+      ...analysis,
+      metadata: {
+        file_name: file.name,
+        file_size_kb: Math.round(file.size / 1024),
+        model_used: "llama-3.1-8b-instant",
+        processing_time_ms: endTime - startTime,
+        tool_version: "v1.0"
+      }
+    });
 
   } catch (error: any) {
-    console.error("ERROR:", error.response?.data || error.message);
+    console.error("API ERROR:", error);
+
+    if (error.message?.includes("Rate limit")) {
+      return NextResponse.json(
+        { error: "Rate limit reached. Please try again in 30 seconds." },
+        { status: 429 }
+      );
+    }
 
     return NextResponse.json(
       {
